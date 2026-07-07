@@ -1,7 +1,5 @@
 # Argo Reality CDN PQC v0.7.0
 
-这是基于已跑通的 `hkzping999/Argo-reality-pqc` 安装骨架重新整理的多 profile 版本。
-
 ## 设计原则
 
 - 使用 `/etc/argox` 作为工作目录。
@@ -13,13 +11,13 @@
 ## 一键安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/你的仓库/main/argox.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
 ```
 
 或者：
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/你的用户名/你的仓库/main/argox.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
 ```
 
 固定 Cloudflare Tunnel：
@@ -29,7 +27,7 @@ ARGO_TOKEN='你的 token' \
 ARGO_DOMAIN='proxy.example.com' \
 REALITY_DOMAIN='reality.example.com' \
 TLS_SERVER='www.microsoft.com' \
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/你的仓库/main/argox.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
 ```
 
 ## 管理命令
