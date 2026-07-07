@@ -1,54 +1,54 @@
-# Argo Reality CDN PQC MultiProfile v0.6.3
+# Argo Reality CDN PQC v0.7.0
 
-Experimental multi-profile VLESS deployment for Debian/Ubuntu VPS:
+这是基于已跑通的 `hkzping999/Argo-reality-pqc` 安装骨架重新整理的多 profile 版本。
 
-- Reality Vision Compat: VLESS + REALITY + Vision + `encryption=none`
-- Reality Vision PQC: VLESS + REALITY + Vision + `mlkem768x25519plus` when supported
-- VLESS WS Compat: Cloudflare Tunnel / CDN fallback + `encryption=none`
-- VLESS WS PQC: Cloudflare Tunnel / CDN fallback + PQC when supported
+## 设计原则
 
-## Install
+- 使用 `/etc/argox` 作为工作目录。
+- 使用 `xray.service` 和 `argo.service` 两个 systemd 服务。
+- Nginx 不单独拆成服务，由 `xray.service` 的 `ExecStartPre` 启动或重载。
+- cloudflared quick tunnel 继续使用 `--url http://localhost:${NGINX_PORT}`。
+- 默认生成兼容节点；PQC 仅在 Xray 支持 `vlessenc` 时输出。
+
+## 一键安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/你的仓库/main/argox.sh)
 ```
 
-or:
+或者：
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/你的用户名/你的仓库/main/argox.sh)
 ```
 
-## Fixed Cloudflare Tunnel
+固定 Cloudflare Tunnel：
 
 ```bash
-ARGO_TOKEN='your-cloudflared-token' \
+ARGO_TOKEN='你的 token' \
 ARGO_DOMAIN='proxy.example.com' \
 REALITY_DOMAIN='reality.example.com' \
 TLS_SERVER='www.microsoft.com' \
-bash <(curl -fsSL https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/你的仓库/main/argox.sh)
 ```
 
-## Commands
+## 管理命令
 
 ```bash
-argox-mp links
-argox-mp status
-argox-mp doctor
-argox-mp logs
-argox-mp restart
-argox-mp uninstall
+argox -n
+argox status
+argox doctor
+argox restart
+argox -u
 ```
 
-## First test order
+## 默认节点
 
-1. Test `VLESS WS Compat` first.
-2. Then test `Reality Vision Compat`.
-3. Test PQC profiles only with clients that support Xray VLESS Encryption / `mlkem768x25519plus`.
+- Reality Vision Compat: `VLESS + Reality + Vision + encryption=none`
+- VLESS WS Compat: `VLESS + WS + cloudflared + encryption=none`
+- Reality Vision PQC: 仅在 `xray vlessenc` 可用时输出
+- VLESS WS PQC: 仅在 `xray vlessenc` 可用时输出
 
-If nodes do not connect, run:
+## 重要说明
 
-```bash
-argox-mp doctor
-journalctl -u xray-argox-mp -u nginx-argox-mp -u cloudflared-argox-mp -n 120 --no-pager
-```
+Reality 直连端口默认优先使用 TCP 443；如果端口已被占用，脚本会自动改用可用端口。Vultr Cloud Firewall 或其他云安全组需要手动放行对应 Reality 端口。WS/CDN 节点通过 cloudflared 隧道，不需要入站放行 8080。
