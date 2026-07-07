@@ -4,7 +4,7 @@
 
 set -Eeuo pipefail
 
-VERSION='0.6.1-multiprofile-runnable'
+VERSION='0.6.3-hotfix-connectivity'
 PROJECT_NAME='Argo Reality PQC MultiProfile'
 
 WORK_DIR=${WORK_DIR:-/etc/argox-mp}
@@ -20,6 +20,7 @@ NGINX_CONF="$WORK_DIR/nginx.conf"
 SERVICE_XRAY='xray-argox-mp.service'
 SERVICE_NGINX='nginx-argox-mp.service'
 SERVICE_CF='cloudflared-argox-mp.service'
+UPSTREAM_RAW_URL=${UPSTREAM_RAW_URL:-'https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh'}
 
 # ---------- defaults ----------
 NODE_NAME=${NODE_NAME:-'Argo-PQC-MP'}
@@ -34,6 +35,7 @@ TLS_SERVER=${TLS_SERVER:-addons.mozilla.org}
 REALITY_DOMAIN=${REALITY_DOMAIN:-''}
 REALITY_PRIVATE=${REALITY_PRIVATE:-''}
 REALITY_PUBLIC=${REALITY_PUBLIC:-''}
+REALITY_SHORT_ID=${REALITY_SHORT_ID:-''}
 
 REALITY_COMPAT_PORT=${REALITY_COMPAT_PORT:-443}
 REALITY_PQC_PORT=${REALITY_PQC_PORT:-8443}
@@ -120,6 +122,7 @@ save_custom() {
     printf 'REALITY_DOMAIN=%q\n' "$REALITY_DOMAIN"
     printf 'REALITY_PRIVATE=%q\n' "$REALITY_PRIVATE"
     printf 'REALITY_PUBLIC=%q\n' "$REALITY_PUBLIC"
+    printf 'REALITY_SHORT_ID=%q\n' "$REALITY_SHORT_ID"
     printf 'REALITY_COMPAT_PORT=%q\n' "$REALITY_COMPAT_PORT"
     printf 'REALITY_PQC_PORT=%q\n' "$REALITY_PQC_PORT"
     printf 'VLESS_WS_COMPAT_PORT=%q\n' "$VLESS_WS_COMPAT_PORT"
@@ -144,6 +147,7 @@ save_custom() {
     printf 'ARGO_DOMAIN=%q\n' "$ARGO_DOMAIN"
     printf 'ARGO_TOKEN=%q\n' "$ARGO_TOKEN"
     printf 'ARGO_EDGE_IP_VERSION=%q\n' "$ARGO_EDGE_IP_VERSION"
+    printf 'UPSTREAM_RAW_URL=%q\n' "$UPSTREAM_RAW_URL"
   } > "$CUSTOM_FILE"
   chmod 600 "$CUSTOM_FILE" 2>/dev/null || true
 }
@@ -180,6 +184,14 @@ random_token() {
     openssl rand -hex 12
   else
     tr -dc 'a-f0-9' </dev/urandom | head -c 24
+  fi
+}
+
+random_short_id() {
+  if have openssl; then
+    openssl rand -hex 8
+  else
+    tr -dc 'a-f0-9' </dev/urandom | head -c 16
   fi
 }
 
@@ -228,6 +240,27 @@ download_file() {
   curl -fL --retry 3 --connect-timeout 20 -o "$out" "$url" || wget -O "$out" "$url"
 }
 
+stop_existing_services_for_upgrade() {
+  truthy "$DRY_RUN" && return 0
+  # v0.6.2: avoid "Text file busy" when replacing a binary that is already running.
+  if have systemctl; then
+    systemctl stop "$SERVICE_CF" "$SERVICE_NGINX" "$SERVICE_XRAY" >/dev/null 2>&1 || true
+  fi
+  if have pkill; then
+    pkill -f "$CLOUDFLARED_BIN" >/dev/null 2>&1 || true
+    pkill -f "$XRAY_BIN" >/dev/null 2>&1 || true
+  fi
+  sleep 1
+}
+
+atomic_install_executable() {
+  local src=$1 dst=$2 mode=${3:-700}
+  local tmpdst="${dst}.new.$$"
+  install -m "$mode" "$src" "$tmpdst"
+  mv -f "$tmpdst" "$dst"
+  chmod "$mode" "$dst" 2>/dev/null || true
+}
+
 install_xray() {
   truthy "$DRY_RUN" && { info "dry-run: skip xray download"; return 0; }
   arch_assets
@@ -240,7 +273,7 @@ install_xray() {
   unzip -qo "$zip" -d "$tmp/xray"
   [ -x "$tmp/xray/xray" ] || chmod +x "$tmp/xray/xray" 2>/dev/null || true
   [ -x "$tmp/xray/xray" ] || fatal "Xray 解压失败：未找到可执行文件。"
-  install -m 700 "$tmp/xray/xray" "$XRAY_BIN"
+  atomic_install_executable "$tmp/xray/xray" "$XRAY_BIN" 700
   [ -f "$tmp/xray/geoip.dat" ] && install -m 600 "$tmp/xray/geoip.dat" "$BIN_DIR/geoip.dat" || true
   [ -f "$tmp/xray/geosite.dat" ] && install -m 600 "$tmp/xray/geosite.dat" "$BIN_DIR/geosite.dat" || true
   rm -rf "$tmp"
@@ -250,9 +283,13 @@ install_cloudflared() {
   truthy "$DRY_RUN" && { info "dry-run: skip cloudflared download"; return 0; }
   arch_assets
   safe_mkdirs
+  local tmp
+  tmp=$(mktemp -d)
   info "下载 cloudflared: $CLOUDFLARED_ASSET"
-  download_file "https://github.com/cloudflare/cloudflared/releases/latest/download/${CLOUDFLARED_ASSET}" "$CLOUDFLARED_BIN"
-  chmod 700 "$CLOUDFLARED_BIN"
+  download_file "https://github.com/cloudflare/cloudflared/releases/latest/download/${CLOUDFLARED_ASSET}" "$tmp/cloudflared"
+  chmod 700 "$tmp/cloudflared"
+  atomic_install_executable "$tmp/cloudflared" "$CLOUDFLARED_BIN" 700
+  rm -rf "$tmp"
 }
 
 port_in_use() {
@@ -375,8 +412,8 @@ xhttp_effective() {
 write_inbound_vless_reality() {
   local file=$1 tag=$2 port=$3 dec=$4
   jq -n \
-    --arg tag "$tag" --arg id "$UUID" --arg dec "$dec" --arg dest "${TLS_SERVER}:443" --arg sni "$TLS_SERVER" --arg pk "$REALITY_PRIVATE" --argjson port "$port" \
-    '{tag:$tag,listen:"0.0.0.0",port:$port,protocol:"vless",settings:{clients:[{id:$id,flow:"xtls-rprx-vision"}],decryption:$dec},streamSettings:{network:"tcp",security:"reality",realitySettings:{show:false,dest:$dest,xver:0,serverNames:[$sni],privateKey:$pk,shortIds:[""]}},sniffing:{enabled:true,destOverride:["http","tls","quic"],metadataOnly:false}}' \
+    --arg tag "$tag" --arg id "$UUID" --arg dec "$dec" --arg dest "${TLS_SERVER}:443" --arg sni "$TLS_SERVER" --arg pk "$REALITY_PRIVATE" --arg sid "$REALITY_SHORT_ID" --argjson port "$port" \
+    '{tag:$tag,listen:"0.0.0.0",port:$port,protocol:"vless",settings:{clients:[{id:$id,flow:"xtls-rprx-vision"}],decryption:$dec},streamSettings:{network:"tcp",security:"reality",realitySettings:{show:false,dest:$dest,xver:0,serverNames:[$sni],privateKey:$pk,shortIds:[$sid]}},sniffing:{enabled:true,destOverride:["http","tls","quic"],metadataOnly:false}}' \
     > "$file"
 }
 
@@ -638,8 +675,8 @@ build_reality_uri() {
   name=$(url_encode "${NODE_NAME} ${label}")
   encq=$(url_encode "$enc")
   sniq=$(url_encode "$TLS_SERVER")
-  printf 'vless://%s@%s:%s?encryption=%s&flow=xtls-rprx-vision&security=reality&sni=%s&fp=chrome&pbk=%s&sid=&type=tcp&headerType=none#%s\n' \
-    "$UUID" "$addr" "$port" "$encq" "$sniq" "$REALITY_PUBLIC" "$name"
+  printf 'vless://%s@%s:%s?encryption=%s&flow=xtls-rprx-vision&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&spx=%%2F&type=tcp&headerType=none#%s\n' \
+    "$UUID" "$addr" "$port" "$encq" "$sniq" "$REALITY_PUBLIC" "$REALITY_SHORT_ID" "$name"
 }
 
 build_ws_uri() {
@@ -699,7 +736,7 @@ generate_mihomo() {
     client-fingerprint: chrome
     reality-opts:
       public-key: $(yaml_quote "$REALITY_PUBLIC")
-      short-id: ''
+      short-id: $(yaml_quote "$REALITY_SHORT_ID")
     encryption: none
 EOF
     fi
@@ -718,7 +755,7 @@ EOF
     client-fingerprint: chrome
     reality-opts:
       public-key: $(yaml_quote "$REALITY_PUBLIC")
-      short-id: ''
+      short-id: $(yaml_quote "$REALITY_SHORT_ID")
     encryption: $(yaml_quote "$VLESS_PQC_ENCRYPTION")
 EOF
     fi
@@ -836,6 +873,7 @@ show_links() {
   echo "Work dir: ${WORK_DIR}"
   echo "Reality addr: $(reality_connect_addr)"
   echo "Reality SNI : ${TLS_SERVER}"
+  echo "Reality sid : ${REALITY_SHORT_ID:-none}"
   echo "Argo domain : ${ARGO_DOMAIN:-not-ready-yet}"
   echo "PQC ready   : ${PQC_READY}"
   echo
@@ -861,7 +899,18 @@ write_shortcut() {
   truthy "$DRY_RUN" && return 0
   cat > /usr/local/bin/argox-mp <<EOF
 #!/usr/bin/env bash
-exec bash ${WORK_DIR}/argox.sh "\$@"
+set -e
+if [ -s ${WORK_DIR}/argox.sh ]; then
+  exec bash ${WORK_DIR}/argox.sh "\$@"
+fi
+if command -v curl >/dev/null 2>&1; then
+  exec bash <(curl -fsSL ${UPSTREAM_RAW_URL}) "\$@"
+elif command -v wget >/dev/null 2>&1; then
+  exec bash <(wget -qO- ${UPSTREAM_RAW_URL}) "\$@"
+else
+  echo "argox-mp: missing saved script and curl/wget" >&2
+  exit 1
+fi
 EOF
   chmod +x /usr/local/bin/argox-mp
 }
@@ -872,9 +921,19 @@ copy_self() {
   local self="${BASH_SOURCE[0]}"
   if [ -f "$self" ]; then
     install -m 700 "$self" "$WORK_DIR/argox.sh"
-  else
-    warn "无法复制当前脚本到 ${WORK_DIR}/argox.sh；快捷命令可能不可用。"
+    return 0
   fi
+  if [ -n "${UPSTREAM_RAW_URL:-}" ]; then
+    local tmp
+    tmp=$(mktemp)
+    if download_file "$UPSTREAM_RAW_URL" "$tmp" >/dev/null 2>&1 && [ -s "$tmp" ]; then
+      install -m 700 "$tmp" "$WORK_DIR/argox.sh"
+      rm -f "$tmp"
+      return 0
+    fi
+    rm -f "$tmp" 2>/dev/null || true
+  fi
+  warn "无法保存当前脚本到 ${WORK_DIR}/argox.sh；但快捷命令会回退到远程脚本。"
 }
 
 install_all() {
@@ -884,10 +943,12 @@ install_all() {
   safe_mkdirs
   [ -n "$UUID" ] || UUID=$(random_uuid)
   [ -n "$SUB_TOKEN" ] || SUB_TOKEN=$(random_token)
+  [ -n "$REALITY_SHORT_ID" ] || REALITY_SHORT_ID=$(random_short_id)
   get_public_ip
   [ -n "$REALITY_DOMAIN" ] || REALITY_DOMAIN=''
 
   pkg_install
+  stop_existing_services_for_upgrade
   install_xray
   install_cloudflared
   normalize_ports
@@ -960,6 +1021,7 @@ dry_run() {
   ARGO_DOMAIN=${ARGO_DOMAIN:-example.trycloudflare.com}
   REALITY_PRIVATE=${REALITY_PRIVATE:-DRYRUN_PRIVATE_KEY_PLACEHOLDER}
   REALITY_PUBLIC=${REALITY_PUBLIC:-DRYRUN_PUBLIC_KEY_PLACEHOLDER}
+  REALITY_SHORT_ID=${REALITY_SHORT_ID:-0123456789abcdef}
   PQC_READY=n
   sanitize_ws_path
   prepare_vless_pqc
@@ -973,6 +1035,38 @@ dry_run() {
   find "$WORK_DIR" -maxdepth 3 -type f | sort
 }
 
+
+doctor_all() {
+  load_custom
+  echo "${PROJECT_NAME} ${VERSION} doctor"
+  echo "Work dir: $WORK_DIR"
+  echo "Reality: $(reality_connect_addr):${REALITY_COMPAT_PORT} sid=${REALITY_SHORT_ID:-none} sni=${TLS_SERVER}"
+  echo "Argo domain: ${ARGO_DOMAIN:-not-saved-yet}"
+  echo
+  if have systemctl; then
+    systemctl is-active "$SERVICE_XRAY" "$SERVICE_NGINX" "$SERVICE_CF" 2>/dev/null || true
+    systemctl --no-pager --full status "$SERVICE_XRAY" "$SERVICE_NGINX" "$SERVICE_CF" | sed -n '1,120p' || true
+  fi
+  echo
+  echo "--- listening ports ---"
+  ss -lntup 2>/dev/null | grep -E ":(${REALITY_COMPAT_PORT}|${REALITY_PQC_PORT}|${NGINX_PORT}|${VLESS_WS_COMPAT_PORT}|${VLESS_WS_PQC_PORT})\b" || true
+  echo
+  echo "--- local nginx root ---"
+  curl -fsS --max-time 5 "http://127.0.0.1:${NGINX_PORT}/" || true
+  echo
+  echo "--- local websocket path health (HTTP status expected 400/404/426, not connection refused) ---"
+  curl -sS -o /dev/null -w 'ws-compat http_status=%{http_code}\n' --max-time 5 "http://127.0.0.1:${NGINX_PORT}/${WS_PATH}-vl-c" || true
+  echo
+  parse_trycloudflare_domain || true
+  if [ -n "$ARGO_DOMAIN" ]; then
+    echo "--- cloudflare tunnel public root ---"
+    curl -k -sS -o /dev/null -w "https://${ARGO_DOMAIN}/ http_status=%{http_code}\n" --max-time 12 "https://${ARGO_DOMAIN}/" || true
+  fi
+  echo
+  echo "--- recent logs ---"
+  journalctl -u "$SERVICE_XRAY" -u "$SERVICE_NGINX" -u "$SERVICE_CF" -n 80 --no-pager 2>/dev/null || true
+}
+
 usage() {
   cat <<EOF
 ${PROJECT_NAME} ${VERSION}
@@ -984,6 +1078,7 @@ Usage:
   bash argox.sh -s | status           Show services
   bash argox.sh -r | restart          Restart services
   bash argox.sh logs                  Show logs
+  bash argox.sh doctor                Run connectivity diagnostics
   bash argox.sh -u | uninstall        Uninstall
   bash argox.sh --dry-run             Generate configs locally for validation
 
@@ -1011,6 +1106,7 @@ main() {
     -s|status|--status) status_all ;;
     -r|restart|--restart) restart_all ;;
     logs|--logs) logs_all ;;
+    doctor|--doctor) doctor_all ;;
     -u|uninstall|--uninstall) uninstall_all ;;
     --dry-run) dry_run ;;
     -h|--help|help) usage ;;

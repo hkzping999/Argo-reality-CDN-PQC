@@ -1,40 +1,54 @@
-# Argo Reality PQC MultiProfile v0.6.1
+# Argo Reality CDN PQC MultiProfile v0.6.3
 
-但把原来的“全局 VLESS PQC 开关”改成了真正的 **multi-profile**：兼容版和 PQC 版分别使用独立 inbound、独立端口或路径。
+Experimental multi-profile VLESS deployment for Debian/Ubuntu VPS:
 
-上传到 GitHub 仓库根目录后运行：
+- Reality Vision Compat: VLESS + REALITY + Vision + `encryption=none`
+- Reality Vision PQC: VLESS + REALITY + Vision + `mlkem768x25519plus` when supported
+- VLESS WS Compat: Cloudflare Tunnel / CDN fallback + `encryption=none`
+- VLESS WS PQC: Cloudflare Tunnel / CDN fallback + PQC when supported
+
+## Install
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh) -l
+bash <(curl -fsSL https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
 ```
 
-或者：
+or:
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh) -l
+bash <(wget -qO- https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
 ```
 
-## Quick Tunnel 实验部署
+## Fixed Cloudflare Tunnel
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh) -l
-```
-
-这会启动 `cloudflared --url http://127.0.0.1:8080` 并生成 `trycloudflare.com` 临时域名。Quick Tunnel 适合实验，不建议当生产长期入口。
-
-## 固定 Cloudflare Tunnel 部署
-
-```bash
-ARGO_TOKEN='你的 cloudflared tunnel token' \
+ARGO_TOKEN='your-cloudflared-token' \
 ARGO_DOMAIN='proxy.example.com' \
 REALITY_DOMAIN='reality.example.com' \
 TLS_SERVER='www.microsoft.com' \
-ENABLE_XHTTP=y \
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/你的仓库/main/argox.sh) -l
+bash <(curl -fsSL https://raw.githubusercontent.com/hkzping999/Argo-reality-CDN-PQC/main/argox.sh)
 ```
 
+## Commands
 
+```bash
+argox-mp links
+argox-mp status
+argox-mp doctor
+argox-mp logs
+argox-mp restart
+argox-mp uninstall
+```
 
-## 注意
+## First test order
 
-本项目用于协议实验与合法网络连通性研究。请遵守所在地法律法规和服务条款。
+1. Test `VLESS WS Compat` first.
+2. Then test `Reality Vision Compat`.
+3. Test PQC profiles only with clients that support Xray VLESS Encryption / `mlkem768x25519plus`.
+
+If nodes do not connect, run:
+
+```bash
+argox-mp doctor
+journalctl -u xray-argox-mp -u nginx-argox-mp -u cloudflared-argox-mp -n 120 --no-pager
+```

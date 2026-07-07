@@ -43,3 +43,17 @@ pqc_xhttp_inbounds=6
 ```
 
 The environment was not a real Debian systemd VPS, so full service startup was not executed here. The generated package is designed for Debian 12 / Ubuntu 22.04+ root deployment.
+
+## v0.6.2 hotfix validation
+
+Checked locally:
+
+```bash
+bash -n argox.sh
+bash -n install.sh
+bash argox.sh --dry-run
+jq empty /tmp/argox-mp-dryrun/config.json
+nginx -t -c /tmp/argox-mp-dryrun/nginx.conf
+```
+
+The installer now calls `stop_existing_services_for_upgrade` before downloading/replacing binaries and uses `atomic_install_executable` for Xray/cloudflared.

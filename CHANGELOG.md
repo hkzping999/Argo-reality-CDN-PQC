@@ -1,11 +1,10 @@
 # Changelog
 
-## 0.6.1-multiprofile-runnable
+## v0.6.3-hotfix-connectivity
 
-- Rebuilt from the uploaded `Argo-reality-pqc` reference as a cleaner runnable multi-profile package.
-- Added separate compat/PQC inbounds instead of using one global VLESS encryption setting.
-- Added Quick Tunnel and fixed Cloudflare Tunnel deployment paths.
-- Added systemd units for Xray, local Nginx gateway, and cloudflared.
-- Added subscription split: all, compat, pqc, reality, cdn, mihomo.
-- Added `--dry-run` validation mode.
-- Default `VLESS_PQC_STRICT=n` so the system still runs if Xray lacks `vlessenc`; set `VLESS_PQC_STRICT=y` for strict experiments.
+- Fix process-substitution installs: the installer no longer depends on copying `$0` when launched as `bash <(curl ...)` or `bash <(wget ...)`.
+- Add fallback shortcut behavior: `argox-mp` can run the saved local script or fetch the configured upstream raw script.
+- Add non-empty REALITY short ID generation and include it in Xray `shortIds` and client `sid=` links for better GUI client compatibility.
+- Add `spx=%2F` to Reality share links.
+- Add `argox-mp doctor` diagnostics for service state, listening ports, local Nginx, Cloudflare Tunnel reachability, and recent logs.
+- Keep v0.6.2 binary replacement fix for `Text file busy`.
